@@ -44,12 +44,17 @@ bitflags! {
 pub struct Flash<SPI: Transfer<u8>, CS: OutputPin> {
     spi: SPI,
     cs: CS,
+    active_low: bool
 }
 
 impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS> {
-    pub fn init(spi: SPI, cs: CS) -> Result<Self, Error<SPI, CS>> {
-        let mut this = Self { spi, cs };
-        this.cs.set_high().map_err(Error::Gpio)?;
+    pub fn init(spi: SPI, mut cs: CS, active_low: bool) -> Result<Self, Error<SPI, CS>> {
+        let mut this = Self { spi, cs, active_low};
+        if active_low {
+          this.cs.set_high().map_err(Error::Gpio)?;
+        } else {
+          this.cs.set_low().map_err(Error::Gpio)?;
+        }
         let status = this.read_status()?;
         info!("Flash::init: status = {:?}", status);
 
@@ -72,9 +77,17 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS> {
 
     fn command(&mut self, bytes: &mut [u8]) -> Result<(), Error<SPI, CS>> {
         // If the SPI transfer fails, make sure to disable CS anyways
-        self.cs.set_low().map_err(Error::Gpio)?;
+        if self.active_low {
+          self.cs.set_low().map_err(Error::Gpio)?;
+        } else {
+          self.cs.set_high().map_err(Error::Gpio)?;
+        }
         let spi_result = self.spi.transfer(bytes).map_err(Error::Spi);
-        self.cs.set_high().map_err(Error::Gpio)?;
+        if self.active_low {
+          self.cs.set_high().map_err(Error::Gpio)?;
+        } else {
+          self.cs.set_low().map_err(Error::Gpio)?;
+        }
         spi_result?;
         Ok(())
     }
@@ -120,12 +133,20 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS> {
             addr as u8,
         ];
 
-        self.cs.set_low().map_err(Error::Gpio)?;
+        if self.active_low {
+          self.cs.set_low().map_err(Error::Gpio)?;
+        } else {
+          self.cs.set_high().map_err(Error::Gpio)?;
+        }
         let mut spi_result = self.spi.transfer(&mut cmd_buf);
         if spi_result.is_ok() {
             spi_result = self.spi.transfer(data);
         }
-        self.cs.set_high().map_err(Error::Gpio)?;
+        if self.active_low {
+          self.cs.set_high().map_err(Error::Gpio)?;
+        } else {
+          self.cs.set_low().map_err(Error::Gpio)?;
+        }
         spi_result.map(|_| ()).map_err(Error::Spi)?;
 
         self.wait_done()?;
@@ -147,12 +168,20 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Read<u16, SPI, CS> for Flash<SPI, CS> {
             addr as u8,
         ];
 
-        self.cs.set_low().map_err(Error::Gpio)?;
+        if self.active_low {
+          self.cs.set_low().map_err(Error::Gpio)?;
+        } else {
+          self.cs.set_high().map_err(Error::Gpio)?;
+        }
         let mut spi_result = self.spi.transfer(&mut cmd_buf);
         if spi_result.is_ok() {
             spi_result = self.spi.transfer(buf);
         }
-        self.cs.set_high().map_err(Error::Gpio)?;
+        if self.active_low {
+          self.cs.set_high().map_err(Error::Gpio)?;
+        } else {
+          self.cs.set_low().map_err(Error::Gpio)?;
+        }
         spi_result.map(|_| ()).map_err(Error::Spi)
     }
 }
